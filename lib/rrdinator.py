@@ -8,7 +8,7 @@ Copyright (c) 2011 __MyCompanyName__. All rights reserved.
 import sys
 import os
 from subprocess import Popen, PIPE
-
+from time import mktime
 from lxml import etree
 
 class RRDExport:
@@ -16,19 +16,18 @@ class RRDExport:
         self.src_rrd = src_rrd 
         self.xml_dom= xml_dom
 
+    @property
     def step(self):
-        int( self.xml_dom.xpath('/xport/meta/step')[0].text )
+        return int( self.xml_dom.xpath('/xport/meta/step')[0].text )
 
     def values(self):
         for node in self.xml_dom.xpath('/xport/data/row'):
             time_epoch = int( node.xpath('t')[0].text )
 
-            if not (self.src_rrd.start == None or time_epoch >= self.src_rrd.start): continue
-            if not (self.src_rrd.end   == None or time_epoch <= self.src_rrd.end ):  continue
+            if not (self.src_rrd._start == None or time_epoch >= self.src_rrd._start): continue
+            if not (self.src_rrd._end   == None or time_epoch <= self.src_rrd._end ):  continue
 
-            print [etree.tostring(value, pretty_print=True) for value in node.xpath('v')]
-
-            yield tuple([time_epoch] + [float(value.text) for value in node.xpath('v')])
+            yield tuple([time_epoch] + [float(value.text) if value.text != 'NaN' else None for value in node.xpath('v')])
 
 class Def:
     def __init__(self,name,value):
@@ -45,23 +44,26 @@ class RRD:
         self.rrdtool_exec = rrdtool_exec
         self.args = []
         self.defs = []
-        self.start = None
-        self.end = None
+        self._start = None
+        self._end = None
 
     def start(self,time):
-        self.start = int( mktime( starts.timetuple() ) )
-        self.args += ['--start',start]
+        self._start = int( mktime( time.timetuple() ) )
+        self.args += ['--start',self._start]
         return self
 
     def end(self,time):
-        self.end = int( mktime( starts.timetuple() ) )
-        self.args += ['--end',end]
+        self._end = int( mktime( time.timetuple() ) )
+        self.args += ['--end',self._end]
         return self
 
     def add(self,_def):
         self.args.append(_def)
         self.defs.append(_def)
         return self
+
+    def _def(self,name,value):
+        self.add(Def(name,value))
 
     def xport(self,*variables):
         ps = None
@@ -87,10 +89,11 @@ class RRD:
             if ps.stderr != None: ps.stderr.close()
 
         return export
-            
-rrd = RRD()
 
-rrd.add(Def('out_data','/data/poll/RRD/acar-ads-01/ifInErrors.108.rrd:data:AVERAGE'))
+if __name__ == "__main__":
+    rrd = RRD()
 
-for row in rrd.xport().values():
-    print row
+    rrd.add(Def('out_data','/data/poll/RRD/acar-ads-01/ifInErrors.108.rrd:data:AVERAGE'))
+    
+    for row in rrd.xport().values():
+        print row
